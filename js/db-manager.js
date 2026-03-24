@@ -94,6 +94,16 @@ const DBManager = {
   },
 
   /**
+   * 全ての記録をクリア
+   */
+  async clearAllRecords() {
+    return this._transaction('records', 'readwrite', store => {
+      const request = store.clear();
+      return request;
+    });
+  },
+
+  /**
    * 店舗を保存
    */
   async saveStore(storeData) {
