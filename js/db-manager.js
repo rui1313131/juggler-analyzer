@@ -53,7 +53,26 @@ const DBManager = {
   async saveRecord(record) {
     return this._transaction('records', 'readwrite', store => {
       record.createdAt = new Date().toISOString();
-      return store.add(record);
+      const request = store.add(record);
+
+      // トランザクション完了時にCloudSyncを呼び出す
+      // _transactionヘルパーはrequest.onsuccessをラップしているため、
+      // ここで直接CloudSyncを呼び出すのではなく、_transactionのresolve時に実行されるようにする
+      // または、_transactionヘルパー内でCloudSyncを呼び出すように変更する
+      // 今回は_transactionヘルパーのコールバック内で直接呼び出す形にする
+      if (typeof CloudSync !== 'undefined' && CloudSync.isActive) {
+        // CloudSync.uploadRecordは非同期なので、トランザクションの完了を待たずに実行
+        // ただし、トランザクションが成功した場合のみ呼び出すべき
+        // _transactionヘルパーのresolve時に実行されるように変更
+        return {
+          request: request,
+          onSuccess: (result) => {
+            CloudSync.uploadRecord(record);
+            return result;
+          }
+        };
+      }
+      return request;
     });
   },
 
@@ -171,3 +190,4 @@ const DBManager = {
     });
   }
 };
+```

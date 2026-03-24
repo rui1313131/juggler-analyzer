@@ -3,6 +3,7 @@
  */
 
 let currentResult = null;
+let currentGraphFeatures = null;
 let settingChart = null;
 let dayChart = null;
 let accuracyChart = null;
@@ -10,9 +11,11 @@ let accuracyChart = null;
 // ===== 初期化 =====
 document.addEventListener('DOMContentLoaded', async () => {
   await DBManager.init();
+  GraphAnalyzer.init(); // 非同期でOpenCVロード
   initMachineSelect();
   initTabs();
   initOCR();
+  initGraphAnalyzer();
   initEventListeners();
   loadStoreList();
   loadHistory();
@@ -136,6 +139,114 @@ function applyOCRData(games, big, reg) {
   showToast('success', '✅ データを入力欄に反映しました');
 }
 
+// ===== グラフ波形解析初期化 =====
+function initGraphAnalyzer() {
+  const dropzone = document.getElementById('graphDropzone');
+  const fileInput = document.getElementById('graphFileInput');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+  });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) processGraphImage(e.dataTransfer.files[0]);
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files[0]) processGraphImage(e.target.files[0]);
+  });
+}
+
+// ===== グラフ画像処理 =====
+async function processGraphImage(file) {
+  showToast('info', '〽️ グラフ波形を解析中...');
+  
+  try {
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    await new Promise(r => img.onload = r);
+
+    // 画像から波形解析
+    // 対象色（赤っぽい線をデフォルトで探す）
+    const result = await GraphAnalyzer.analyzeGraphImage(img, {r: 200, g: 50, b: 50});
+    URL.revokeObjectURL(img.src);
+
+    currentGraphFeatures = result.features;
+    document.getElementById('graphResult').style.display = 'block';
+
+    // プレビュー描画（Canvasのサイズを調整して元の画像を縮小表示、その上に抽出線を重ねる）
+    const canvas = document.getElementById('graphPreviewCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // 表示用サイズ調整
+    const displayWidth = canvas.parentElement.clientWidth;
+    const ratio = displayWidth / result.previewCanvas.width;
+    canvas.width = displayWidth;
+    canvas.height = result.previewCanvas.height * ratio;
+    
+    ctx.drawImage(result.previewCanvas, 0, 0, canvas.width, canvas.height);
+
+    // 抽出した波形を上に描画
+    if (result.waveform && result.waveform.length > 0) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#f1c40f'; // 金色でハイライト
+      ctx.lineWidth = 3;
+      
+      const wRange = result.waveform[result.waveform.length-1].progress; // max100
+      
+      // Y軸の復元描画（簡略化: 中央を0として上下に振るパースで描画）
+      let maxV = -Infinity; let minV = Infinity;
+      result.waveform.forEach(w => {
+        if(w.value > maxV) maxV = w.value;
+        if(w.value < minV) minV = w.value;
+      });
+      const vRange = maxV - minV || 1;
+      
+      result.waveform.forEach((w, i) => {
+        const x = (w.progress / 100) * canvas.width;
+        // Yは画像の中央付近を基準に相対的に (雑なプレビュー用)
+        const y = canvas.height - ((w.value - minV) / vRange * canvas.height * 0.8 + canvas.height * 0.1);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    // 特徴量テキストの表示
+    const f = result.features;
+    document.getElementById('graphFeaturesContent').innerHTML = `
+      <div style="margin-bottom:0.8rem;">
+        <span class="badge" style="background:${f.type.color}; color:#fff;">${f.type.label}</span>
+      </div>
+      <table class="stat-table" style="font-size:0.75rem;">
+        <tr><th>安定度スコア</th><td>${f.stabilityScore.toFixed(2)}</td></tr>
+        <tr><th>最大ハマり幅</th><td>${f.maxDrawdown.toFixed(0)}</td></tr>
+        <tr><th>波の激しさ</th><td>${f.fluctuation.toFixed(0)}</td></tr>
+      </table>
+      <div style="margin-top:0.5rem; color:var(--color-kin);">
+        ✅ この波形特徴を分析の材料として記録しました！
+      </div>
+    `;
+
+    showToast('success', '✅ グラフの解析が完了しました');
+  } catch (e) {
+    console.error('グラフ解析エラー:', e);
+    showToast('error', '⚠️ グラフ解析失敗: ' + e.message);
+  }
+}
+
+function clearGraphData() {
+  currentGraphFeatures = null;
+  document.getElementById('graphResult').style.display = 'none';
+  document.getElementById('graphFileInput').value = '';
+  showToast('info', '🗑️ グラフデータをクリアしました');
+}
+
 // ===== イベントリスナー =====
 function initEventListeners() {
   // 分析ボタン
@@ -186,18 +297,18 @@ function runAnalysis() {
         const dayOfWeek = new Date().getDay();
         priors = StoreAnalyzer.generatePriors(storeRecords, dayOfWeek, machineNumber);
       }
-      executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, priors);
+      executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, priors, currentGraphFeatures);
     }).catch(() => {
-      executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, null);
+      executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, null, currentGraphFeatures);
     });
   } else {
-    executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, null);
+    executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, null, currentGraphFeatures);
   }
 }
 
-function executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, priors) {
-  // 設定推定
-  const settingResult = AnalysisEngine.estimateSettings(machineName, totalGames, bigCount, regCount, grapeCount, priors);
+function executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount, remainingGames, storeName, machineNumber, priors, graphFeatures) {
+  // 設定推定 (グラフ特徴量も渡す)
+  const settingResult = AnalysisEngine.estimateSettings(machineName, totalGames, bigCount, regCount, grapeCount, priors, graphFeatures);
   if (!settingResult) { showToast('error', '⚠️ 分析エラー'); return; }
 
   // 期待値計算
@@ -226,6 +337,31 @@ function executeAnalysis(machineName, totalGames, bigCount, regCount, grapeCount
   document.getElementById('panel-result').classList.add('active');
 
   showToast('success', '✅ 分析完了！');
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(tabId).style.display = 'block';
+  
+  // dataset.tabが無い場合にフォールバック判定
+  let currentBtn;
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    if ((btn.dataset.tab && tabId === 'tab-' + btn.dataset.tab) || 
+        (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(tabId))) {
+      currentBtn = btn;
+    }
+  });
+  if (currentBtn) currentBtn.classList.add('active');
+
+  // 表示時に特定の再描画が必要なタブ
+  if (tabId === 'tab-history') {
+    loadHistory();
+  } else if (tabId === 'tab-accuracy') {
+    loadAccuracy();
+  } else if (tabId === 'tab-cloud') {
+    loadCloudData();
+  }
 }
 
 // ===== 結果レンダリング =====
@@ -686,6 +822,80 @@ async function loadAccuracy() {
   } catch (e) {
     console.error('的中率読込エラー:', e);
   }
+}
+
+// ===== クラウド同期データ（みんなのデータ）表示 =====
+async function loadCloudData() {
+  const container = document.getElementById('cloudListContainer');
+  const warning = document.getElementById('cloudDataWarning');
+  const summaryArea = document.getElementById('cloudSummaryArea');
+  
+  if (typeof CloudSync === 'undefined' || !CloudSync.isActive) {
+    warning.style.display = 'block';
+    summaryArea.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  
+  warning.style.display = 'none';
+  summaryArea.style.display = 'grid';
+  container.innerHTML = '<div style="text-align:center; padding:2rem;">データを読込中...</div>';
+
+  const records = await CloudSync.getPublicRecords();
+  
+  if (!records || records.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:2rem;">まだ共有データがありません。</div>';
+    document.getElementById('cloudTotalRecords').innerText = '0件';
+    document.getElementById('cloudHighSettingRatio').innerText = '--%';
+    return;
+  }
+
+  document.getElementById('cloudTotalRecords').innerText = `${records.length}件`;
+  
+  let highSettingCount = 0;
+  let html = '';
+  
+  records.forEach(r => {
+    if (r.bestSetting >= 5) highSettingCount++;
+    
+    // 時刻のフォーマット
+    let timeStr = "不明";
+    if (r.timestamp && r.timestamp.toDate) {
+      const d = r.timestamp.toDate();
+      timeStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    const isHigh = r.bestSetting >= 5;
+    const badgeColor = isHigh ? 'var(--color-primary)' : (r.bestSetting >= 3 ? 'var(--color-secondary)' : '#666');
+
+    html += `
+      <div class="card" style="margin-bottom:10px; padding:1rem; border-left: 4px solid ${badgeColor};">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-weight:bold; font-size:1.1rem;">
+            ${r.machineName} <span style="font-size:0.8rem; color:var(--color-text-dim);">@${r.storeName} (${r.machineNumber}番台)</span>
+          </div>
+          <div style="font-size:0.8rem; color:var(--color-text-dim);">${timeStr}</div>
+        </div>
+        <div class="grid-2" style="margin-top:0.5rem; gap:10px;">
+          <div>
+            <div style="font-size:0.8rem; color:var(--color-text-dim);">推測設定</div>
+            <div style="font-size:1.3rem; color:${badgeColor}; font-weight:bold;">
+              設定${r.bestSetting} <span style="font-size:0.8rem;">(高設定期待度 ${r.highSettingProb}%)</span>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:0.8rem; color:var(--color-text-dim);">回転数 / 信頼度</div>
+            <div style="font-size:1.1rem;">${r.totalGames}G / ${r.confidenceLevel}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+  
+  container.innerHTML = html;
+  
+  const highRatio = ((highSettingCount / records.length) * 100).toFixed(1);
+  document.getElementById('cloudHighSettingRatio').innerText = `${highRatio}%`;
 }
 
 function renderAccuracyChart(records) {

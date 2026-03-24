@@ -29,6 +29,8 @@
   <button class="tab-btn" data-tab="store">🏪 店舗分析</button>
   <button class="tab-btn" data-tab="history">📜 履歴</button>
   <button class="tab-btn" data-tab="accuracy">🎯 的中率</button>
+  <!-- 追加: みんなのデータ -->
+  <button class="tab-btn" data-tab="cloud">🌍 みんなのデータ</button>
 </nav>
 
 <!-- メインコンテンツ -->
@@ -121,6 +123,33 @@
           ゲーム数・BIG・REGの数値を自動で読み取ります。
         </div>
       </div>
+
+      <!-- グラフ波形解析 -->
+      <div class="card">
+        <div class="card-title"><span class="icon">📉</span>スランプグラフ波形の読取</div>
+        <div class="ocr-dropzone" id="graphDropzone" style="padding:1.5rem;">
+          <div class="icon-upload" style="font-size:2rem; margin-bottom:0.5rem;">〽️</div>
+          <div class="text-main">スランプグラフの写真をドロップ</div>
+          <div class="text-sub">グラフの波形（安定度・荒さ）をAIが解析し、設定推測精度を向上させます</div>
+          <input type="file" class="hidden-input" id="graphFileInput" accept="image/*">
+        </div>
+        
+        <div id="graphResult" style="margin-top: 1rem; display:none;">
+          <div class="section-title">波形解析結果</div>
+          <div class="grid-2">
+            <div>
+              <canvas id="graphPreviewCanvas" style="width:100%; border:1px solid var(--color-border); border-radius:var(--radius-sm);"></canvas>
+            </div>
+            <div id="graphFeaturesContent" style="font-size:0.85rem; padding-left:0.5rem;">
+              <!-- JSで挿入 -->
+            </div>
+          </div>
+          <div style="text-align:right; margin-top:0.5rem;">
+            <button class="btn btn-sm btn-secondary" onclick="clearGraphData()">クリア</button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </section>
 
@@ -265,6 +294,39 @@
     </div>
   </section>
 
+  <!-- ===== みんなのデータ (クラウド共有) タブ ===== -->
+  <section id="tab-cloud" class="tab-content" style="display: none;">
+    <div class="card">
+      <div class="card-title">
+        <span class="icon">🌍</span>全国の予測データ
+        <button class="btn btn-sm btn-secondary" onclick="loadCloudData()" style="float:right;">更新 🔄</button>
+      </div>
+      <div style="font-size:0.8rem; color:var(--color-text-dim); margin-bottom:1rem;">
+        ※全国のユーザーが分析した結果が匿名で共有されています。（設定6の投入傾向などの把握に役立ちます）
+      </div>
+
+      <div id="cloudDataWarning" style="background:#442222; color:#ffaaaa; padding:1rem; border-radius:4px; font-size:0.9rem; margin-bottom:1rem; display:none;">
+        ⚠️ Firebaseが設定されていません。共有機能を利用するには <code>js/firebase-config.js</code> にご自身のFirebaseプロジェクトの設定値を入力してください。
+      </div>
+
+      <div class="cloud-summary-grid" id="cloudSummaryArea" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:1rem; display:none;">
+        <div class="stat-card" style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:4px; text-align:center;">
+          <div style="font-size:0.8rem; color:var(--color-text-dim);">全国の高設定(5,6)投入率</div>
+          <div id="cloudHighSettingRatio" style="font-size:1.5rem; color:var(--color-kin); font-weight:bold; margin-top:5px;">--%</div>
+        </div>
+        <div class="stat-card" style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:4px; text-align:center;">
+          <div style="font-size:0.8rem; color:var(--color-text-dim);">直近の分析件数</div>
+          <div id="cloudTotalRecords" style="font-size:1.5rem; color:var(--color-text); font-weight:bold; margin-top:5px;">0件</div>
+        </div>
+      </div>
+
+      <div id="cloudListContainer">
+        <!-- JSで一覧を挿入 -->
+        <div style="text-align:center; padding:2rem; color:var(--color-text-dim);">データを読込中...</div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- トースト通知コンテナ -->
@@ -285,11 +347,14 @@
 </div>
 
 <!-- JS読込 -->
+<!-- OpenCV.js (非同期ロード) -->
+<script async src="https://docs.opencv.org/4.8.0/opencv.js" type="text/javascript"></script>
 <script src="js/juggler-specs.js"></script>
 <script src="js/analysis-engine.js"></script>
 <script src="js/store-analyzer.js"></script>
 <script src="js/ocr-module.js"></script>
 <script src="js/db-manager.js"></script>
+<script src="js/graph-analyzer.js"></script>
 <script src="js/app.js"></script>
 
 </body>
