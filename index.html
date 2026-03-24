@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ジャグラーの期待値・設定判別をAI分析で予測。店舗の癖を読み、勝率を上げるための無料WEBアプリ。">
+  <title>雀蛙 — ジャグラー期待値予測</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">雀蛙</div>
+    <div class="header-actions">
+      <button class="btn-icon" id="btnExport" title="データをエクスポート">📥</button>
+      <button class="btn-icon" id="btnImport" title="データをインポート">📤</button>
+    </div>
+  </div>
+</header>
+
+<!-- タブナビゲーション -->
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="input">📝 データ入力</button>
+  <button class="tab-btn" data-tab="result">📊 分析結果</button>
+  <button class="tab-btn" data-tab="store">🏪 店舗分析</button>
+  <button class="tab-btn" data-tab="history">📜 履歴</button>
+  <button class="tab-btn" data-tab="accuracy">🎯 的中率</button>
+</nav>
+
+<!-- メインコンテンツ -->
+<main class="main-content">
+
+  <!-- ===== データ入力タブ ===== -->
+  <section class="tab-panel active" id="panel-input">
+
+    <div class="grid-2">
+      <!-- 手動入力 -->
+      <div class="card">
+        <div class="card-title"><span class="icon">✍️</span>台データ入力</div>
+
+        <div class="form-group">
+          <label class="form-label">機種名</label>
+          <select class="form-select" id="machineName">
+            <option value="">機種を選択...</option>
+          </select>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label">総回転数</label>
+            <input type="number" class="form-input" id="totalGames" placeholder="例: 5000" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">BIG回数</label>
+            <input type="number" class="form-input" id="bigCount" placeholder="例: 20" min="0">
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label">REG回数</label>
+            <input type="number" class="form-input" id="regCount" placeholder="例: 15" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">ぶどう回数（任意）</label>
+            <input type="number" class="form-input" id="grapeCount" placeholder="未計測なら空欄">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label">店舗名</label>
+            <input type="text" class="form-input" id="storeName" placeholder="例: ABCホール" list="storeList">
+            <datalist id="storeList"></datalist>
+          </div>
+          <div class="form-group">
+            <label class="form-label">台番号</label>
+            <input type="text" class="form-input" id="machineNumber" placeholder="例: 123">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">残りゲーム数（閉店まで）</label>
+          <input type="number" class="form-input" id="remainingGames" placeholder="例: 3000" value="3000" min="0">
+        </div>
+
+        <button class="btn btn-gold btn-lg" id="btnAnalyze" style="width:100%; margin-top:0.5rem;">
+          🔮 分析開始
+        </button>
+      </div>
+
+      <!-- OCR入力 -->
+      <div class="card">
+        <div class="card-title"><span class="icon">📷</span>画像から読取（OCR）</div>
+
+        <div class="ocr-dropzone" id="ocrDropzone">
+          <div class="icon-upload">📸</div>
+          <div class="text-main">台の画面写真をドロップ</div>
+          <div class="text-sub">またはクリックしてファイルを選択</div>
+          <input type="file" class="hidden-input" id="ocrFileInput" accept="image/*">
+        </div>
+
+        <div class="ocr-progress-bar" id="ocrProgressBar">
+          <div class="ocr-progress-fill" id="ocrProgressFill"></div>
+        </div>
+
+        <div id="ocrResult" style="margin-top: 1rem; display:none;">
+          <div class="section-title">読取結果</div>
+          <div id="ocrResultContent"></div>
+        </div>
+
+        <div class="divider"></div>
+        <div style="font-size:0.75rem; color:var(--color-text-dim);">
+          💡 台のデータカウンター画面を撮影してアップロードしてください。
+          ゲーム数・BIG・REGの数値を自動で読み取ります。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 分析結果タブ ===== -->
+  <section class="tab-panel" id="panel-result">
+    <div id="resultEmpty" class="empty-state">
+      <div class="icon">🔮</div>
+      <div class="title">データを入力して分析を開始</div>
+      <p>「データ入力」タブからジャグラーの台データを入力してください</p>
+    </div>
+
+    <div id="resultContent" style="display:none;">
+      <!-- 推定設定 -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="icon">🎯</span>設定推定結果</div>
+          <div id="settingBars"></div>
+          <div id="confidenceMeter" class="confidence-meter"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="icon">💰</span>期待値</div>
+          <div id="evDisplay" class="ev-display"></div>
+        </div>
+      </div>
+
+      <!-- 詳細分析 -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="icon">📈</span>ボーナス確率</div>
+          <div id="bonusStats"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="icon">🎰</span>次のボーナス予測</div>
+          <div id="nextBonusPredict"></div>
+        </div>
+      </div>
+
+      <!-- 確率分布チャート -->
+      <div class="card">
+        <div class="card-title"><span class="icon">📊</span>設定確率分布</div>
+        <div class="chart-container">
+          <canvas id="settingChart"></canvas>
+        </div>
+      </div>
+
+      <!-- 保存ボタン -->
+      <div style="text-align:center; margin-top:1rem;">
+        <button class="btn btn-primary btn-lg" id="btnSaveRecord">💾 この結果を保存</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 店舗分析タブ ===== -->
+  <section class="tab-panel" id="panel-store">
+    <div id="storeEmpty" class="empty-state">
+      <div class="icon">🏪</div>
+      <div class="title">店舗データがありません</div>
+      <p>分析結果を保存すると、店舗ごとの傾向分析が可能になります</p>
+    </div>
+
+    <div id="storeContent" style="display:none;">
+      <div class="form-group">
+        <label class="form-label">店舗を選択</label>
+        <select class="form-select" id="storeSelect">
+          <option value="">すべての店舗</option>
+        </select>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="icon">📅</span>曜日別パターン</div>
+          <div class="chart-container">
+            <canvas id="dayChart"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="icon">🎰</span>台番号別分析</div>
+          <div id="machineRanking"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="icon">💡</span>おすすめ情報</div>
+        <div id="recommendations"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="icon">📈</span>傾向サマリー</div>
+        <div id="trendSummary"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 履歴タブ ===== -->
+  <section class="tab-panel" id="panel-history">
+    <div id="historyEmpty" class="empty-state">
+      <div class="icon">📜</div>
+      <div class="title">履歴がありません</div>
+      <p>分析結果を保存すると、ここに表示されます</p>
+    </div>
+
+    <div id="historyContent" style="display:none;">
+      <div class="card">
+        <div class="card-title"><span class="icon">📜</span>分析履歴</div>
+        <table class="stat-table" id="historyTable">
+          <thead>
+            <tr>
+              <th>日時</th>
+              <th>店舗</th>
+              <th>機種</th>
+              <th>台番</th>
+              <th>G数</th>
+              <th>BIG</th>
+              <th>REG</th>
+              <th>推定設定</th>
+              <th>期待値</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 的中率タブ ===== -->
+  <section class="tab-panel" id="panel-accuracy">
+    <div class="card">
+      <div class="card-title"><span class="icon">🎯</span>予測精度トラック</div>
+      <div id="accuracyStats"></div>
+      <div class="chart-container">
+        <canvas id="accuracyChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">📊</span>累計統計</div>
+      <div id="cumulativeStats" class="grid-4"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- トースト通知コンテナ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- モーダル（インポート用） -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-title">📤 データインポート</div>
+    <div class="form-group">
+      <textarea class="form-input" id="importData" rows="8" placeholder="エクスポートしたJSONデータを貼り付けてください..."></textarea>
+    </div>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+      <button class="btn btn-secondary" id="btnCancelImport">キャンセル</button>
+      <button class="btn btn-gold" id="btnDoImport">インポート実行</button>
+    </div>
+  </div>
+</div>
+
+<!-- JS読込 -->
+<script src="js/juggler-specs.js"></script>
+<script src="js/analysis-engine.js"></script>
+<script src="js/store-analyzer.js"></script>
+<script src="js/ocr-module.js"></script>
+<script src="js/db-manager.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
